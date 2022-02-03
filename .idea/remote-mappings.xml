@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="RemoteMappingsManager">
+    <list>
+      <list>
+        <remote-mappings server-id="python@sftp://r933r@worker:22/omics/groups/OE0540/internal/software/users/snajder/miniconda3/envs/nanopore/bin/python" />
+        <remote-mappings server-id="python@sftp://r933r@worker:22/omics/groups/OE0540/internal/software/users/snajder/miniconda3/envs/meth5/bin/python" />
+      </list>
+    </list>
+  </component>
+</project>
