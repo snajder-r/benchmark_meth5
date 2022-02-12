@@ -114,6 +114,22 @@ for tool in pm_parents:
             [sample_m5["HG003"], sample_m5["HG004"]],
         )
     )
+    
+def load_methcp_result(path):
+    with open(path, "r") as f:
+        header = f.readline()
+        for line in f.readlines():
+            line = line.strip().split("\t")
+            line = [c.replace('"',"") for c in line]
+            hit = dict(chrom=line[1],
+                        start = int(line[2]),
+                        end = int(line[3]),
+                        diff = float(line[6]),
+                        pval = float(line[8])
+                       )
+            yield hit
+
+        
 
 print("CpGs found using nanoepiseg: ", len(unions(h["CpGs"] for h in pm_parents["nes"]["hits"])))
 print("CpGs found using fastseg: ", len(unions(h["CpGs"] for h in pm_parents["fs"]["hits"])))
