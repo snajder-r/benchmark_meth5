@@ -20,7 +20,9 @@ class ModuleConfig:
             "parents_35": "/home/r933r/data/projects/nanopore/pycometh_benchmark/segmentation_parents/segmentation_parents_mindiff_35.bed",
             
         }
-        self.meth5_template_file = "/home/r933r/data/projects/nanopore/pycometh_benchmark/met_merged/{sample}_cpg.h5"
+        self.meth5_template_file = "/home/r933r/data/projects/nanopore/pycometh_benchmark/met_merged/{sample}_cpg_lzfcompressed.h5"
+        self.meth5_gzipped_template_file = "/home/r933r/data/projects/nanopore/pycometh_benchmark/met_merged/{" \
+                                   "sample}_cpg.h5"
         self.mock_bsseq_template_file = (
             "/home/r933r/data/projects/nanopore/pycometh_benchmark/met_merged/{sample}_mock_bsseq.bedGraph"
         )
@@ -45,8 +47,8 @@ class ModuleConfig:
             },
         }
         self.subset_m5_file="/home/r933r/data/projects/nanopore/pycometh_benchmark/subset_m5/{sample}_cpg.h5"
-        self.modbam_template_file = "/home/r933r/data/projects/nanopore/pycometh_benchmark/met_modbam/{sample}_cpg.sorted.bam"
-        self.modcram_template_file = "/home/r933r/data/projects/nanopore/pycometh_benchmark/met_modbam/{" \
+        self.modbam_template_file = "/home/r933r/data/projects/nanopore/pycometh_benchmark/met_modbam_npdefault/{sample}_cpg.sorted.bam"
+        self.modcram_template_file = "/home/r933r/data/projects/nanopore/pycometh_benchmark/met_modbam_npdefault/{" \
                                     "sample}_cpg.sorted.cram"
     
     def __item__(self, key):

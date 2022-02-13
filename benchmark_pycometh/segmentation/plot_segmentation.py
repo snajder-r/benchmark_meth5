@@ -49,7 +49,7 @@ metrates = {
 
 
 def plot_segmentation_comparison(chrom, start, end, title="", **kwargs):
-    figure_kwargs = {"figsize": (20, 4)}
+    figure_kwargs = {"figsize": (12, 4)}
     
     def plot(seg, segtype):
         pl.plot_region(
@@ -59,15 +59,15 @@ def plot_segmentation_comparison(chrom, start, end, title="", **kwargs):
             figure_kwargs=figure_kwargs,
             ws=0,
             title=f"{title} ({segtype})",
-            aggregate_samples=True,
-            with_no_hp=False,
+            aggregate_samples=False,
+            with_no_hp=True,
             coordinate_space=False,
             marker_height=0.9,
             fontsize=8,
             show_has_value_indicator=False,
             hold=False,
             vlines_in_coord_space=seg,
-            vlinewidth=3,
+            vlinewidth=1,
             **kwargs
         )
     
@@ -80,10 +80,10 @@ def plot_segmentation_comparison(chrom, start, end, title="", **kwargs):
 
 
 with pa.open_multipage_pdf("test"):
-    chrom = "10"
-    start = 40076150
-    end = 40375811
-    plot_segmentation_comparison(chrom, start-10000, end+10000, title="Not found by NES",
+    chrom = "9"
+    start = 34990414
+    end = 34990823
+    plot_segmentation_comparison(chrom, start-4000, end+4000, title="Not found by NES",
                                  annotations=[{"region":(start,end), "text":"Diffmet NES", "color":"r"}])
     
     for s in metrates:

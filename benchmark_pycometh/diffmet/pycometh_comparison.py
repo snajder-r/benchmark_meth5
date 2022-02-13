@@ -8,6 +8,7 @@ from nanoepitools.pycometh_result import PycomethOutput
 from benchmark_pycometh.bsseq.bsseq import load_metrates
 from nanoepitools.plotting.general_plotting import PlotArchiver, plot_2d_density
 from nanoepitools.reference_cpgs import ReferenceCpGs
+from nanoepitools.math import fdr_from_pvals
 from meth5.meth5 import MetH5File, compute_betascore
 
 from benchmark_pycometh.config import module_config
@@ -18,33 +19,73 @@ chroms = [str(i) for i in range(1, 22)]
 
 pa = PlotArchiver("pycometh", config={"plot_archive_dir": "/home/r933r/snajder/nanoepitools_plots/benchmark"})
 
-pm_hg003 = {
-    "fs": {
-        "filename": "/home/r933r/data/projects/nanopore/pycometh_benchmark/asm_fastseg/met_comp_adj_HG003.bed",
-        "name": "Fastseg (w. hp)",
-    },
-    "mk": {
-        "filename": "/home/r933r/data/projects/nanopore/pycometh_benchmark/asm_fastseg/met_comp_adj_HG003.bed",
-        "name": "Methylkit",
-    },
-    "nes": {
-        "filename": "/home/r933r/data/projects/nanopore/pycometh_benchmark/asm/met_comp_adj_HG003.bed",
-        "name": "Nanoepiseg",
-    },
-}
+
+def pycometh_loader(filename, filter_singlecall=True):
+    for hit in PycomethOutput(filename).read_file(
+        drop_insignificant=False, min_diff=0.5, pval_threshold=0.05, use_raw_pvalue=False
+    ):
+        if filter_singlecall:
+            sample_rates = {
+                sample: sample_m5[sample][hit["chrom"]].get_values_in_range(hit["start"], hit["end"]).get_llr_site_rate()[0]
+                for sample in ["HG003", "HG004"]}
+            if any((~np.isnan(sample_rates[sample])).sum() <= 1 for sample in sample_rates):
+                print("Skipping because based on a single call")
+                continue
+        yield hit
+
+
+def load_methcp_result(path, min_diff=0.5):
+    hits = []
+    
+    with open(path, "r") as f:
+        header = f.readline()
+        for line in f.readlines():
+            line = line.strip().split("\t")
+            line = [c.replace('"', "") for c in line]
+            hit = dict(
+                chrom=line[1], start=int(line[2]), end=int(line[3]), pval=float(line[8]), difference=-float(line[6])
+            )
+            hits.append(hit)
+    pvals = np.array([hit["pval"] for hit in hits])
+    diffs = np.array([hit["difference"] for hit in hits])
+    fdr = fdr_from_pvals(pvals)
+    idx = (fdr < 0.05) & (np.abs(diffs) > min_diff)
+    for sig, hit in tqdm.tqdm(list(zip(idx, hits))):
+        if sig:
+            sample_rates = {
+                sample: sample_m5[sample][hit["chrom"]]
+                .get_values_in_range(hit["start"], hit["end"])
+                .get_llr_site_rate()[0]
+                for sample in ["HG003", "HG004"]
+            }
+            if any((~np.isnan(sample_rates[sample])).sum() <= 1 for sample in sample_rates):
+                print("Skipping because based on a single call")
+                continue
+            hit["difference"] = np.nanmean(sample_rates["HG004"]) - np.nanmean(sample_rates["HG003"])
+            if abs(hit["difference"]) > min_diff:
+                yield hit
+
 
 pm_parents = {
     "fs": {
         "filename": "/home/r933r/data/projects/nanopore/pycometh_benchmark/diffmet_parents_methylkit/met_comp_adj_parents.bed",
         "name": "Fastseg (w. hp)",
+        "loader": lambda x: pycometh_loader(x, False),
     },
     "nes": {
-        "filename": "/home/r933r/data/projects/nanopore/pycometh_benchmark/diffmet_parents/met_comp_adj_parents.bed",
-        "name": "Nanoepiseg",
+        "filename": "/home/r933r/data/projects/nanopore/pycometh_benchmark/diffmet_parents_bs_diff/met_comp_adj_parents.bed",
+        "name": "Nanoepiseg (BS diff)",
+        "loader": lambda x: pycometh_loader(x, False),
     },
-    "mk_diff": {
-        "filename": "/omics/groups/OE0540/internal/projects/nanopore/pycometh_benchmark/diffmet_parents_methylkit/methylkit_diff_met_comp.tsv",
-        "name": "Methylkit diff",
+    "nes_llr": {
+        "filename": "/home/r933r/data/projects/nanopore/pycometh_benchmark/diffmet_parents_llr_diff/met_comp_adj_parents.bed",
+        "name": "Nanoepiseg (LLR diff)",
+        "loader": lambda x: pycometh_loader(x, True),
+    },
+    "metcp": {
+        "filename": "/home/r933r/data/projects/nanopore/pycometh_benchmark/diffmet_parents_methylkit/sig_diff_methcp.tsv",
+        "name": "MethCP",
+        "loader": load_methcp_result,
     },
 }
 
@@ -56,7 +97,9 @@ ref_cpgs = ReferenceCpGs(module_config.reference)
 def annotate(hits, m5s):
     for hit in tqdm.tqdm(list(hits)):
         hit["CpGs"] = count_cpgs_available(hit["chrom"], hit["start"], hit["end"], m5s, ref_cpgs)
-        hit["diff"] = eval(hit["difference"])[0]
+        if len(hit["CpGs"]) == 0:
+            print(hit)
+        hit["diff"] = eval(hit["difference"])[0] if isinstance(hit["difference"], str) else hit["difference"]
         yield hit
 
 
@@ -68,100 +111,85 @@ def filter(hits):
 
 
 sample_m5: Dict[str, MetH5File] = {
-    sample: MetH5File(module_config.meth5_template_file.format(sample=sample), "r") for sample in module_config.samples
+    sample: MetH5File(module_config.meth5_template_file.format(sample=sample), "r")
+    for sample in ["HG003", "HG004"]  # module_config.samples
+}
+
+
+for tool in pm_parents:
+    pm_parents[tool]["hits"] = list(
+        annotate(
+            filter(pm_parents[tool]["loader"](pm_parents[tool]["filename"])),
+            [sample_m5["HG003"], sample_m5["HG004"]],
+        )
+    )
+
+
+print("CpGs found using nanoepiseg: ", len(unions(h["CpGs"] for h in pm_parents["nes"]["hits"])))
+print("CpGs found using nanoepiseg (LLR diff): ", len(unions(h["CpGs"] for h in pm_parents["nes_llr"]["hits"])))
+print("CpGs found using fastseg: ", len(unions(h["CpGs"] for h in pm_parents["fs"]["hits"])))
+print("CpGs found using MethCP: ", len(unions(h["CpGs"] for h in pm_parents["metcp"]["hits"])))
+
+print("Segments found using nanoepiseg: ", len(pm_parents["nes"]["hits"]))
+print("Segments found using nanoepiseg (LLR diff): ", len(pm_parents["nes"]["hits"]))
+print("Segments found using fastseg: ", len(pm_parents["fs"]["hits"]))
+print("Segments found using MethCP: ", len(pm_parents["metcp"]["hits"]))
+
+
+
+def segment_level_difference(hits_a, hits_b):
+    for hit_a in hits_a:
+        found = False
+        for hit_b in hits_b:
+            if hit_a["chrom"] == hit_b["chrom"] and hit_a["start"] < hit_b["end"] and hit_b["start"] < hit_a["end"]:
+                found = True
+                break
+        if not found:
+            yield hit_a
+
+##########################################################
+
+
+pm_hg003 = {
+    "mk": {
+        "filename": "/home/r933r/data/projects/nanopore/pycometh_benchmark/asm_fastseg/met_comp_adj_HG003.bed",
+        "name": "Methylkit", "loader": lambda x: pycometh_loader(x, False),
+    },
+    "nes": {
+        "filename": "/home/r933r/data/projects/nanopore/pycometh_benchmark/asm/met_comp_adj_HG003.bed",
+        "name": "Nanoepiseg", "loader": lambda x: pycometh_loader(x, False),
+    },
 }
 
 for tool in pm_hg003:
     pm_hg003[tool]["pm"] = PycomethOutput(pm_hg003[tool]["filename"])
     pm_hg003[tool]["hits"] = list(
         annotate(
-            filter(pm_hg003[tool]["pm"].read_file(drop_insignificant=False, min_diff=0.5, pval_threshold=0.05)),
+            filter(pm_hg003[tool]["loader"](pm_hg003[tool]["filename"])),
             [sample_m5["HG003"]],
         )
     )
 
 print("CpGs found using nanoepiseg: ", len(unions(h["CpGs"] for h in pm_hg003["nes"]["hits"])))
 print("CpGs found using methylkit: ", len(unions(h["CpGs"] for h in pm_hg003["mk"]["hits"])))
-print("CpGs found using fastseg: ", len(unions(h["CpGs"] for h in pm_hg003["fs"]["hits"])))
-
 
 print("Segments found using nanoepiseg: ", len(pm_hg003["nes"]["hits"]))
 print("Segments found using methylkit: ", len(pm_hg003["mk"]["hits"]))
-print("Segments found using fastseg: ", len(pm_hg003["fs"]["hits"]))
 
 
-def difference(hits_a, hits_b):
-    not_found = 0
-    found = 0
-    for hit_a in tqdm.tqdm(hits_a):
-        cpgs = set(hit_a["CpGs"])
-        for hit_b in hits_b:
-            if hit_a["chrom"] != hit_b["chrom"]:
-                continue
-            othercpgs = set(hit_b["CpGs"])
-            cpgs = cpgs.difference(othercpgs)
-        
-        found += len(hit_a["CpGs"]) - len(cpgs)
-        not_found += len(cpgs)
-    return not_found
-
-
-for tool in pm_parents:
-    pm_parents[tool]["pm"] = PycomethOutput(pm_parents[tool]["filename"])
-    pm_parents[tool]["hits"] = list(
-        annotate(
-            filter(pm_parents[tool]["pm"].read_file(drop_insignificant=False, min_diff=0.5, pval_threshold=0.05)),
-            [sample_m5["HG003"], sample_m5["HG004"]],
-        )
-    )
-    
-def load_methcp_result(path):
-    with open(path, "r") as f:
-        header = f.readline()
-        for line in f.readlines():
-            line = line.strip().split("\t")
-            line = [c.replace('"',"") for c in line]
-            hit = dict(chrom=line[1],
-                        start = int(line[2]),
-                        end = int(line[3]),
-                        diff = float(line[6]),
-                        pval = float(line[8])
-                       )
-            yield hit
-
-        
-
-print("CpGs found using nanoepiseg: ", len(unions(h["CpGs"] for h in pm_parents["nes"]["hits"])))
-print("CpGs found using fastseg: ", len(unions(h["CpGs"] for h in pm_parents["fs"]["hits"])))
-print("CpGs found using methylkit diff: ", len(unions(h["CpGs"] for h in pm_parents["mk_diff"]["hits"])))
-
-print("Segments found using nanoepiseg: ", len(pm_parents["nes"]["hits"]))
-print("Segments found using fastseg: ", len(pm_parents["fs"]["hits"]))
-print("Segments found using methylkit diff: ", len(pm_parents["mk_diff"]["hits"]))
-
-
-def difference_diffmet(hits_a, hits_b):
-    not_found = []
-    for hit_a in tqdm.tqdm(hits_a):
-        cpgs = set(hit_a["CpGs"])
-        for hit_b in hits_b:
-            if hit_a["chrom"] != hit_b["chrom"]:
-                continue
-            othercpgs = set(hit_b["CpGs"])
-            cpgs = cpgs.difference(othercpgs)
-        if len(cpgs) == len(hit_a["CpGs"]):
-            # entire segment was not found
-            not_found.append(hit_a)
-    return not_found
+###############################################################
 
 
 def plot_density_effect_vs_length(pm_list, xlim=[0, 3]):
     fig, axes = plt.subplots(1, len(pm_list), figsize=(18, 5))
     for i, tool in enumerate(pm_list):
         plt.sca(axes[i])
+        hits = pm_list[tool]["hits"]
+        numcpgs = [len(h["CpGs"]) for h in hits]
+        idx = [n>0 for n in numcpgs]
         plot_2d_density(
-            np.log10([len(h["CpGs"]) for h in pm_list[tool]["hits"]]),
-            np.array([h["diff"] for h in pm_list[tool]["hits"]]),
+            np.log10([n for use, n in zip(idx, numcpgs) if use]),
+            np.array([h["diff"] for use, h in zip(idx, hits) if use]),
             cmap="jet",
         )
         axes[i].title.set_text(pm_list[tool]["name"])
@@ -173,25 +201,26 @@ def plot_density_effect_vs_length(pm_list, xlim=[0, 3]):
 
 
 with pa.open_multipage_pdf("asm_hg003_comparison"):
-    pa.figure()
+    figsize=(6,2)
+    pa.figure(figsize=figsize)
     plt.title("Allele specific methylation in HG003")
-    plt.bar(0, sum(1 for h in pm_hg003["nes"]["hits"]))
-    plt.bar(1, sum(1 for h in pm_hg003["mk"]["hits"]))
-    plt.bar(2, sum(1 for h in pm_hg003["fs"]["hits"]))
-    plt.ylabel("Number of Segments")
-    plt.xticks([0, 1, 2], labels=["Nanoepiseg", "Methylkit", "Fastseg (w. HP)"])
+    plt.barh(0, sum(1 for h in pm_hg003["nes"]["hits"]))
+    plt.barh(1, sum(1 for h in pm_hg003["mk"]["hits"]))
+    plt.barh(2, sum(1 for h in pm_hg003["fs"]["hits"]))
+    plt.xlabel("Number of Segments")
+    plt.yticks([0, 1, 2], labels=["Nanoepiseg", "Methylkit", "Fastseg (w. HP)"])
     pa.savefig()
     
-    pa.figure()
+    pa.figure(figsize=figsize)
     plt.title("Allele specific methylation in HG003")
-    plt.bar(0, sum(len(h["CpGs"]) for h in pm_hg003["nes"]["hits"]))
-    plt.bar(1, sum(len(h["CpGs"]) for h in pm_hg003["mk"]["hits"]))
-    plt.bar(2, sum(len(h["CpGs"]) for h in pm_hg003["fs"]["hits"]))
-    plt.ylabel("Number of CpGs")
-    plt.xticks([0, 1, 2], labels=["Nanoepiseg", "Methylkit", "Fastseg (w. HP)"])
+    plt.barh(0, sum(len(h["CpGs"]) for h in pm_hg003["nes"]["hits"]))
+    plt.barh(1, sum(len(h["CpGs"]) for h in pm_hg003["mk"]["hits"]))
+    plt.barh(2, sum(len(h["CpGs"]) for h in pm_hg003["fs"]["hits"]))
+    plt.xlabel("Number of CpGs")
+    plt.yticks([0, 1, 2], labels=["Nanoepiseg", "Methylkit", "Fastseg (w. HP)"])
     pa.savefig()
     
-    pa.figure()
+    pa.figure(figsize=figsize)
     plt.title("Allele specific methylation in HG003")
     plt.violinplot([len(h["CpGs"]) for h in pm_hg003["nes"]["hits"]], positions=[0])
     plt.violinplot([len(h["CpGs"]) for h in pm_hg003["mk"]["hits"]], positions=[1])
@@ -203,31 +232,32 @@ with pa.open_multipage_pdf("asm_hg003_comparison"):
     plot_density_effect_vs_length(pm_hg003, xlim=[0, 4])
 
 with pa.open_multipage_pdf("diffmet_parents_comparison"):
-    pa.figure()
+    figsize=(6,2)
+    pa.figure(figsize=figsize)
     plt.title("Differential methylation HG003 vs HG004")
     plt.violinplot([len(h["CpGs"]) for h in pm_parents["nes"]["hits"]], positions=[0])
-    plt.violinplot([len(h["CpGs"]) for h in pm_parents["mk_diff"]["hits"]], positions=[1])
+    plt.violinplot([len(h["CpGs"]) for h in pm_parents["metcp"]["hits"]], positions=[1])
     plt.violinplot([len(h["CpGs"]) for h in pm_parents["fs"]["hits"]], positions=[2])
     plt.ylabel("Segment length")
-    plt.xticks([0, 1, 2], labels=["Nanoepiseg", "Methylkit Diffmet", "Fastseg (w. HP)"])
+    plt.xticks([0, 1, 2], labels=["Nanoepiseg", "MethCP", "Fastseg (w. HP)"])
     pa.savefig()
     
-    pa.figure()
+    pa.figure(figsize=figsize)
     plt.title("Differential methylation HG003 vs HG004")
-    plt.bar(0, sum(1 for h in pm_parents["nes"]["hits"]))
-    plt.bar(1, sum(1 for h in pm_parents["mk_diff"]["hits"]))
-    plt.bar(2, sum(1 for h in pm_parents["fs"]["hits"]))
-    plt.ylabel("Number of Segments")
-    plt.xticks([0, 1, 2], labels=["Nanoepiseg", "Methylkit Diffmet", "Fastseg (w. HP)"])
+    plt.barh(0, sum(1 for h in pm_parents["nes"]["hits"]))
+    plt.barh(1, sum(1 for h in pm_parents["metcp"]["hits"]))
+    plt.barh(2, sum(1 for h in pm_parents["fs"]["hits"]))
+    plt.xlabel("Number of Segments")
+    plt.yticks([0, 1, 2], labels=["Nanoepiseg", "MethCP", "Fastseg (w. HP)"])
     pa.savefig()
     
-    pa.figure()
+    pa.figure(figsize=figsize)
     plt.title("Differential methylation HG003 vs HG004")
-    plt.bar(0, sum(len(h["CpGs"]) for h in pm_parents["nes"]["hits"]))
-    plt.bar(1, sum(len(h["CpGs"]) for h in pm_parents["mk_diff"]["hits"]))
-    plt.bar(2, sum(len(h["CpGs"]) for h in pm_parents["fs"]["hits"]))
-    plt.ylabel("Number of CpGs")
-    plt.xticks([0, 1, 2], labels=["Nanoepiseg", "Methylkit Diffmet", "Fastseg (w. HP)"])
+    plt.barh(0, sum(len(h["CpGs"]) for h in pm_parents["nes"]["hits"]))
+    plt.barh(1, sum(len(h["CpGs"]) for h in pm_parents["metcp"]["hits"]))
+    plt.barh(2, sum(len(h["CpGs"]) for h in pm_parents["fs"]["hits"]))
+    plt.xlabel("Number of CpGs")
+    plt.yticks([0, 1, 2], labels=["Nanoepiseg", "MethCP", "Fastseg (w. HP)"])
     pa.savefig()
     
     plot_density_effect_vs_length(pm_parents, xlim=[0, 3])
@@ -297,15 +327,13 @@ gff.build_index()
 promoters_nes = pm_parents["nes"]["pm"].load_promoters_hit(gff, 2000, 500, min_diff=0.5)
 promoters_mk = pm_parents["mk_diff"]["pm"].load_promoters_hit(gff, 2000, 500, min_diff=0.5)
 
-difference(pm_parents["nes"]["hits"], pm_parents["mk_diff"]["hits"])
-difference(pm_parents["mk_diff"]["hits"], pm_parents["nes"]["hits"])
-
-
 """
 SANITY CHECK
 """
 
-hp_lookup = {s: {h: int(i) for i, h in sample_m5[s].h5_fp["reads/read_groups/haplotype"].attrs.items()} for s in sample_m5}
+hp_lookup = {
+    s: {h: int(i) for i, h in sample_m5[s].h5_fp["reads/read_groups/haplotype"].attrs.items()} for s in sample_m5
+}
 for hit in pm_hg003["mk"]["hits"]:
     agg = (
         sample_m5["HG003"][hit["chrom"]]
@@ -318,7 +346,9 @@ for hit in pm_hg003["mk"]["hits"]:
         if abs(diff_diff) > 0.25:
             print(hit["diff"], (rates[hp_lookup["HG003"]["H1"]] - rates[hp_lookup["HG003"]["H2"]]))
 
+
 def ratio_overmethylated(hits):
     return sum(hit["diff"] > 0 for hit in hits) / len(hits)
+
 
 ratio_overmethylated(pm_hg003["nes"]["hits"])
