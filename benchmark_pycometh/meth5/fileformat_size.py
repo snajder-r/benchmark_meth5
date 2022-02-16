@@ -29,9 +29,9 @@ with pa.open_multipage_pdf("meth5_modbampy_filesize"):
     plt.barh(1, file_size_hg003_meth5_lzf, color="#1F77B4")
     plt.barh(2, file_size_hg003_meth5, color="#FF7F0E")
     
-    plt.barh(3, file_size_hg003_bam, color="#999999")
+    plt.barh(3, file_size_hg003_bam, color="#279127", hatch="\\\\\\", edgecolor="w")
     plt.barh(3, file_size_hg003_bam - file_size_hg003_modbam, left=file_size_hg003_bam, color="#2CA02C",)
-    plt.barh(4, file_size_hg003_cram, color="#999999")
+    plt.barh(4, file_size_hg003_cram, color="#b42122", hatch="\\\\\\", edgecolor="w")
     plt.barh(4, file_size_hg003_cram - file_size_hg003_modcram, left=file_size_hg003_cram, color="#D62728")
     plt.xlim(0,plt.xlim()[1]*1.1)
     plt.yticks([1, 2, 3, 4], labels=["MetH5 (LZF compressed)", "MetH5 (gzip compressed)", "ModCRAM", "ModBAM"])

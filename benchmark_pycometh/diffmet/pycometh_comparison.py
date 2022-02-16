@@ -22,7 +22,7 @@ pa = PlotArchiver("pycometh", config={"plot_archive_dir": "/home/r933r/snajder/n
 
 def pycometh_loader(filename, filter_singlecall=True):
     for hit in PycomethOutput(filename).read_file(
-        drop_insignificant=False, min_diff=0.5, pval_threshold=0.05, use_raw_pvalue=False
+        drop_insignificant=False, min_diff=0.5, pval_threshold=0.05, use_raw_pvalue=True
     ):
         if filter_singlecall:
             sample_rates = {
@@ -48,8 +48,7 @@ def load_methcp_result(path, min_diff=0.5):
             hits.append(hit)
     pvals = np.array([hit["pval"] for hit in hits])
     diffs = np.array([hit["difference"] for hit in hits])
-    fdr = fdr_from_pvals(pvals)
-    idx = (fdr < 0.05) & (np.abs(diffs) > min_diff)
+    idx = (pvals < 0.05) & (np.abs(diffs) > min_diff)
     for sig, hit in tqdm.tqdm(list(zip(idx, hits))):
         if sig:
             sample_rates = {
@@ -134,18 +133,6 @@ print("Segments found using nanoepiseg: ", len(pm_parents["nes"]["hits"]))
 print("Segments found using nanoepiseg (LLR diff): ", len(pm_parents["nes"]["hits"]))
 print("Segments found using fastseg: ", len(pm_parents["fs"]["hits"]))
 print("Segments found using MethCP: ", len(pm_parents["metcp"]["hits"]))
-
-
-
-def segment_level_difference(hits_a, hits_b):
-    for hit_a in hits_a:
-        found = False
-        for hit_b in hits_b:
-            if hit_a["chrom"] == hit_b["chrom"] and hit_a["start"] < hit_b["end"] and hit_b["start"] < hit_a["end"]:
-                found = True
-                break
-        if not found:
-            yield hit_a
 
 ##########################################################
 
@@ -241,7 +228,17 @@ with pa.open_multipage_pdf("diffmet_parents_comparison"):
     plt.ylabel("Segment length")
     plt.xticks([0, 1, 2], labels=["Nanoepiseg", "MethCP", "Fastseg (w. HP)"])
     pa.savefig()
-    
+
+    figsize = (6, 2)
+    pa.figure(figsize=figsize)
+    plt.title("Differential methylation HG003 vs HG004")
+    plt.violinplot([abs(h["diff"]) for h in pm_parents["nes"]["hits"]], positions=[0])
+    plt.violinplot([abs(h["diff"]) for h in pm_parents["metcp"]["hits"]], positions=[1])
+    plt.violinplot([abs(h["diff"]) for h in pm_parents["fs"]["hits"]], positions=[2])
+    plt.ylabel("Effect size")
+    plt.xticks([0, 1, 2], labels=["Nanoepiseg", "MethCP", "Fastseg (w. HP)"])
+    pa.savefig()
+
     pa.figure(figsize=figsize)
     plt.title("Differential methylation HG003 vs HG004")
     plt.barh(0, sum(1 for h in pm_parents["nes"]["hits"]))
@@ -261,94 +258,3 @@ with pa.open_multipage_pdf("diffmet_parents_comparison"):
     pa.savefig()
     
     plot_density_effect_vs_length(pm_parents, xlim=[0, 3])
-
-
-metrates = {
-    sample: load_metrates(module_config.bs_seq_files[sample]["combined"], has_chr=True, has_percent=False, sort=False)
-    for sample in module_config.bs_seq_files
-}
-
-metrates = {sample: metrates[sample].groupby("chrom") for sample in metrates}
-
-
-def pair_hits_with_diffmet_from_bsseq(hits):
-    metrates_temp = {
-        sample: {chrom: metrates[sample].get_group(chrom) for chrom in metrates[sample].groups} for sample in metrates
-    }
-    for hit in tqdm.tqdm(hits):
-        mean_met = {}
-        for sample in metrates_temp:
-            idx_before = metrates_temp[sample][hit["chrom"]]["start"] >= hit["start"]
-            idx_after = metrates_temp[sample][hit["chrom"]]["end"] < hit["end"]
-            mean_met[sample] = np.nanmean(metrates_temp[sample][hit["chrom"]].loc[idx_before & idx_after]["fracmet"])
-            metrates_temp[sample][hit["chrom"]] = metrates_temp[sample][hit["chrom"]].loc[idx_before]
-        yield hit["diff"], mean_met["HG004"] - mean_met["HG003"]
-
-
-validate_nes = np.array(list(pair_hits_with_diffmet_from_bsseq(pm_parents["nes"]["hits"])))
-validate_fs = np.array(list(pair_hits_with_diffmet_from_bsseq(pm_parents["fs"]["hits"])))
-validate_mk_diff = np.array(list(pair_hits_with_diffmet_from_bsseq(pm_parents["mk_diff"]["hits"])))
-
-with pa.open_multipage_pdf("bs_validation_parents_diff"):
-    pa.figure()
-    plt.title("Nanoepiseg + Pycometh diffmet bisulfite validation")
-    plt.scatter(validate_nes[:, 0], validate_nes[:, 1], s=1)
-    plt.ylabel("BS-Seq")
-    plt.ylabel("ONT")
-    plt.ylim(-1, 1)
-    plt.xlim(-1, 1)
-    pa.savefig()
-    
-    pa.figure()
-    plt.title("Fastseg + Pycometh diffmet bisulfite validation")
-    plt.scatter(validate_fs[:, 0], validate_fs[:, 1], s=1)
-    plt.ylabel("BS-Seq")
-    plt.ylabel("ONT")
-    plt.ylim(-1, 1)
-    plt.xlim(-1, 1)
-    pa.savefig()
-    
-    pa.figure()
-    plt.title("Methylkit diff segmentation")
-    plt.scatter(validate_mk_diff[:, 0], validate_mk_diff[:, 1], s=1)
-    plt.ylabel("BS-Seq")
-    plt.ylabel("ONT")
-    plt.ylim(-1, 1)
-    plt.xlim(-1, 1)
-    pa.savefig()
-
-
-from nanoepitools.annotations.annotations import GFFAnnotationsReader
-
-gff = GFFAnnotationsReader()
-gff.read(module_config.gff_file, only_protein_coding=False)
-gff.build_index()
-
-promoters_nes = pm_parents["nes"]["pm"].load_promoters_hit(gff, 2000, 500, min_diff=0.5)
-promoters_mk = pm_parents["mk_diff"]["pm"].load_promoters_hit(gff, 2000, 500, min_diff=0.5)
-
-"""
-SANITY CHECK
-"""
-
-hp_lookup = {
-    s: {h: int(i) for i, h in sample_m5[s].h5_fp["reads/read_groups/haplotype"].attrs.items()} for s in sample_m5
-}
-for hit in pm_hg003["mk"]["hits"]:
-    agg = (
-        sample_m5["HG003"][hit["chrom"]]
-        .get_values_in_range(hit["start"], hit["end"])
-        .get_llr_site_readgroup_aggregate(compute_betascore, "haplotype")
-    )
-    rates = {hp: np.nanmean(agg[hp][0]) for hp in agg}
-    if all(hp_lookup["HG003"][hp] in rates for hp in ("H1", "H2")):
-        diff_diff = hit["diff"] - (rates[hp_lookup["HG003"]["H1"]] - rates[hp_lookup["HG003"]["H2"]])
-        if abs(diff_diff) > 0.25:
-            print(hit["diff"], (rates[hp_lookup["HG003"]["H1"]] - rates[hp_lookup["HG003"]["H2"]]))
-
-
-def ratio_overmethylated(hits):
-    return sum(hit["diff"] > 0 for hit in hits) / len(hits)
-
-
-ratio_overmethylated(pm_hg003["nes"]["hits"])
