@@ -1,3 +1,7 @@
+import tqdm
+from collections import namedtuple
+from matplotlib.patches import Patch
+import random
 import pandas as pd
 import matplotlib
 import matplotlib.pyplot as plt
@@ -7,29 +11,6 @@ from nanoepitools.plotting.general_plotting import PlotArchiver, plot_2d_density
 
 from benchmark_pycometh.config import module_config
 import math
-
-pa = PlotArchiver("segmentation", config={"plot_archive_dir": "/home/r933r/snajder/nanoepitools_plots/benchmark"})
-
-
-def subsampled_segments(segment_table, subsample=1.0):
-    assert (
-        segment_table.columns[0] == "chrom"
-        and segment_table.columns[1] == "start"
-        and segment_table.columns[2] == "end"
-    )
-    for segment in segment_table.itertuples(index=False):
-        if subsample == 1.0:
-            num_chunks = 1
-        else:
-            num_chunks = int(math.ceil((1 / subsample) - np.random.rand()))
-        subseg_len = (segment[2] - segment[1]) // num_chunks
-        for i in range(num_chunks):
-            yield {
-                "chrom": segment[0],
-                "start": int(segment[1] + subseg_len * i),
-                "end": int(segment[2] + subseg_len * (i + 1)),
-            }
-
 
 matplotlib.use("Agg")
 
@@ -48,71 +29,96 @@ seg_nanoepiseg = pd.read_csv(
     module_config.nanoepiseg_segmentation["HG003"], sep="\t", names=["chrom", "start", "end"], dtype={"chrom": "str"}
 )
 
-subsample_rate = seg_methylkit.shape[0] / seg_nanoepiseg.shape[0]
+seg_methcp = pd.read_csv(
+    module_config.methcp_segmentation["parents_mock_from_np_hp"],
+    sep="\t",
+    usecols=[1, 2, 3],
+    names=["chrom", "start", "end"],
+    dtype={"chrom": "str"},
+    skiprows=1,
+)
+
+
 
 mf = MetH5File(module_config.meth5_template_file.format(sample="HG003"), "r")
 hp_dict = {int(k): v for k, v in mf.h5_fp["reads/read_groups/haplotype"].attrs.items()}
 hp_ids = [k for k, v in hp_dict.items() if v in {"H1", "H2"}]
 
+seg_methylkit = seg_methylkit.groupby("chrom")
+seg_nanoepiseg = seg_nanoepiseg.groupby("chrom")
+seg_methcp = seg_methcp.groupby("chrom")
+
+chrom = "21"
 
 
+def compute_variance(mf, regions, wiggle=0):
+    regions = list(regions)
+    vars = []
+    lens = []
+    with tqdm.tqdm(total=len(regions)) as pbar:
+        for region in regions:
+            if region.start < wiggle:
+                continue
+            agg, _ = mf[chrom].get_values_in_range(region.start - wiggle, region.end - wiggle).get_llr_site_rate()
+            var = np.nanvar(agg)
+            if not np.isnan(var):
+                lens.append(region.end-region.start)
+                vars.append(var)
+            pbar.update(1)
+    vars = np.array(vars)
+    lens = np.array(lens)
+    return lens, vars
 
-def test_idx(table):
-    return table.loc[(table["chrom"] == "5") & (table["start"] <= 6051182) & (5951256 < table["end"])]
+def permute_segments(original_segments):
+    segment_lengths = original_segments.apply(lambda x: x["end"] - x["start"], axis=1).tolist()
+    ends = np.array([0] + original_segments["end"].tolist())[:-1]
+    starts = np.array(original_segments["start"])
+    gaps = starts - ends
+    offset = gaps[0]
+    gaps = gaps[1:]
+    random.shuffle(segment_lengths)
+    random.shuffle(gaps)
+    gaps = iter(gaps)
+    region = namedtuple("region", ["start", "end"])
+    for l in segment_lengths:
+        yield region(offset, offset + l)
+        try:
+            offset += next(gaps) + l
+        except StopIteration:
+            return
 
-def test_idx(table):
-    return table.loc[(table["chrom"] == "21")]
+
+np_variance = compute_variance(mf, seg_nanoepiseg.get_group(chrom).itertuples())
+mk_variance = compute_variance(mf, seg_methylkit.get_group(chrom).itertuples())
+mcp_variance = compute_variance(mf, seg_methcp.get_group(chrom).itertuples())
+np_variance_random = compute_variance(mf, list(permute_segments(seg_nanoepiseg.get_group(chrom))))
+mk_variance_random = compute_variance(mf, list(permute_segments(seg_methylkit.get_group(chrom))))
+mcp_variance_random = compute_variance(mf, list(permute_segments(seg_methcp.get_group(chrom))))
 
 
-def compute_subseg_stdevs(*args, **kwargs):
-    i = 0
-    hp_dict = {int(k): v for k, v in mf.h5_fp["reads/read_groups/haplotype"].attrs.items()}
-    for segment in subsampled_segments(*args, **kwargs):
+with pa.open_multipage_pdf("variance_segmentation"):
+    pa.figure()
+    plt.title("Variance of segmentation HG003 chr21")
+    parts = plt.violinplot((np_variance[1], mk_variance[1], mcp_variance[1]), positions=[0, 1, 2])
+    for pc in parts["bodies"]:
+        pc.set_facecolor("blue")
+        pc.set_alpha(0.5)
         
-        rg_agg = (
-            mf[segment["chrom"]]
-            .get_values_in_range(segment["start"], segment["end"])
-            .get_llr_site_readgroup_rate("haplotype")
-        )
-        for hp, (bs_segment, ranges_segment) in rg_agg.items():
-            if hp_dict.get(hp, "none") not in {"H1", "H2"}:
-                continue
-            mean_bs_segment = np.nanmean(bs_segment)
-            std_bs_segment = np.nanstd(bs_segment)
-            if np.isnan(mean_bs_segment):
-                continue
-            
-            num_subsegments = len(bs_segment) // 10
-            if num_subsegments < 2:
-                continue
-            subsegment_starts = list(range(0, len(bs_segment), len(bs_segment) // num_subsegments)) + [
-                len(bs_segment) - 1
-            ]
-            
-            diff_bs_segment = []
-            for subseg_start, subseg_end in zip(subsegment_starts[:-1], subsegment_starts[1:]):
-                bs_subsegment = np.nanmean(bs_segment[subseg_start:subseg_end])
-                if np.isnan(bs_subsegment):
-                    continue
-                
-                diff_bs_segment.append((bs_subsegment - mean_bs_segment) ** 2)
-            yield std_bs_segment, np.sqrt(np.mean(diff_bs_segment))
+    parts = plt.violinplot((np_variance_random[1], mk_variance_random[1], mcp_variance_random[1]), positions=[0, 1, 2])
+    for pc in parts["bodies"]:
+        pc.set_facecolor("red")
+        pc.set_alpha(0.5)
+        
 
-stdevs_nes = list(compute_subseg_stdevs(test_idx(seg_nanoepiseg)))
-stdevs_mk = list(compute_subseg_stdevs(test_idx(seg_methylkit), subsample=subsample_rate))
-
-
-stdevs_nes = np.array(stdevs_nes)
-stdevs_mk = np.array(stdevs_mk)
-
-with pa.open_multipage_pdf("segmentation_purity"):
-    pa.figure()
-    plot_2d_density(stdevs_nes[:,0], stdevs_nes[:,1], cmap="jets")
-    plt.ylim(0,0.5)
-    plt.xlim(0, 0.5)
+    legend_elements = [Patch(facecolor='red', edgecolor='red', label='Random'), Patch(facecolor='blue', edgecolor='blue', label='Segmentation')]
+    plt.legend(handles=legend_elements)
+    plt.xticks([0, 1, 2], ["PycoMeth", "MethylKit", "MethCP"])
     pa.savefig()
-    pa.figure()
-    plot_2d_density(stdevs_mk[:, 0], stdevs_mk[:, 1], cmap="jets")
-    plt.ylim(0, 0.5)
-    plt.xlim(0, 0.5)
-    pa.savefig()
+
+    for caller_name, variance in [("PycoMeth", np_variance), ("MethylKit", mk_variance), ("MethCP", mcp_variance), ("PycoMeth randomized", np_variance_random), ("MethylKit randomized", mk_variance_random), ("MethCP randomized", mcp_variance_random)]:
+        pa.figure()
+        plt.title(f"Length vs variance HG003 chr21 {caller_name}")
+        x = np.log10(variance[0])
+        idx = ~(np.isnan(x) | np.isinf(x))
+        plot_2d_density(x[idx], variance[1][idx], cmap="jet")
+        pa.savefig()
