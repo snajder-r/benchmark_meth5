@@ -9,6 +9,8 @@ from matplotlib.patches import Rectangle, Patch, Circle
 from benchmark_pycometh.config import module_config
 import matplotlib.pyplot as plt
 from nanoepitools.pycometh_result import PycomethOutput
+from nanoepitools.plotting.plot_methylation_profile import default_color_map
+from nanoepitools.math import p_to_llr
 
 
 def load_hp_parent_child_mapping():
@@ -91,7 +93,61 @@ def compute_hit_betascores(mf, read_groups, chrom, start, end, mean=False, merge
     return hp_rates
 
 
-def main():
+def color(p):
+    if np.isnan(p):
+        return (255, 255, 255, 0)
+    return default_color_map(p_to_llr(p))
+
+
+def plot_met_patches(x, x_end, y, color):
+    patches = [Rectangle((x[i], y[i]), x_end[i] - x[i], 1) for i in range(len(x))]
+    patch_collection = PatchCollection(patches)
+    patch_collection.set_color(color)
+    patch_collection.set_edgecolor(None)
+    plt.gca().add_collection(patch_collection)
+
+
+def plot_faux_hg002(df):
+    pa.figure(figsize=(100, 2))
+    df = df.copy()
+    df["chrom"] = df.index.map(lambda x: x.split("_")[0])
+    df["pos"] = df.index.map(lambda x: int(x.split("_")[1]))
+    df = df.sort_values(["chrom", "pos"]).groupby("chrom")
+    x_off = 0
+    samples = ["HG002_H1", "faux_HG002_H1", "HG002_H2", "faux_HG002_H2", "HG003_H1", "HG003_H2", "HG004_H1", "HG004_H2"]
+    vlines_segments = []
+    vlines_recombination = []
+    for chrom in tqdm.tqdm(df.groups):
+        chrom_df = df.get_group(chrom)
+        x = x_off + np.arange(chrom_df.shape[0])
+        for y, s in enumerate(samples):
+            # plt.scatter(x, [y]*len(x), color=[color(p) for p in chrom_df[s]], s=1, marker="s")
+            plot_met_patches(x, x + 0.8, [y] * len(x), [color(p) for p in chrom_df[s]])
+        
+        last_row = None
+        
+        x = x_off
+        
+        for row in chrom_df.itertuples():
+            x += 1
+            if last_row is not None:
+                if row.segment != last_row.segment:
+                    vlines_segments.append(x - 0.05)
+                    plt.text(x - 0.1, -1, row.segment, fontsize=2)
+                if last_row.H1_parent != row.H1_parent or last_row.H1_parent_hp != row.H1_parent_hp or \
+                        last_row.H2_parent != row.H2_parent or last_row.H2_parent_hp != row.H2_parent_hp:
+                    vlines_recombination.append(x - 0.1)
+            last_row = row
+        x_off = x
+    
+    plt.yticks(np.arange(len(samples)) + 0.5, samples)
+    plt.gca().autoscale_view()
+    plt.xlim(0, x_off)
+    plt.vlines(vlines_recombination, plt.ylim()[0], plt.ylim()[1], linewidth=0.1, color="r")
+    plt.vlines(vlines_segments, plt.ylim()[0], plt.ylim()[1], linewidth=0.2, color="k")
+    pa.savefig()
+
+if __name__ == "__main__":
     mf = {
         sample: MetH5File(module_config.meth5_template_file.format(sample=sample), "r")
         for sample in module_config.samples
@@ -133,7 +189,7 @@ def main():
             plt.title(sample)
             plt.ylabel("HG002")
             plt.xlabel(sample)
-            plot_2d_density(hp_mean_rates_in_hits[sample][idx], hp_mean_rates_in_hits["HG002"][idx])
+            plot_2d_density(hp_mean_rates_in_hits[sample][idx], hp_mean_rates_in_hits["HG002"][idx], cmap="jet")
             pa.savefig()
     
     """ A very similar comparison, but this time on CpG-level """
@@ -148,7 +204,9 @@ def main():
         "faux_HG002_H2": {},
     }
     all_sources = {k: {"parent": {}, "parent_hp": {}} for k in ["H1", "H2"]}
-    for hit in tqdm.tqdm(hits):
+    all_segments = {}
+
+    for segment, hit in enumerate(tqdm.tqdm(hits)):
         hp_rates = compute_hit_betascores(mf, read_groups, **hit)
         faux_child, sources = create_faux_child(mapping_hps, hp_rates, **hit, return_sources=True)
         hp_rates["faux_HG002"] = faux_child
@@ -165,23 +223,20 @@ def main():
                     *rates_coords, sources[hp]["parent"], sources[hp]["parent_hp"]
                 ):
                     coord_key = f"{hit['chrom']}_{int(coord[0])}"
+                    all_segments[coord_key] = segment
                     all_rates[key][coord_key] = rate
                     if sample == "faux_HG002":
-                        for hp in ["H1", "H2"]:
-                            all_sources[hp]["parent"][coord_key] = parent
-                            all_sources[hp]["parent_hp"][coord_key] = parent_hp
-    
-    index = set(all_rates["HG002_H1"].keys())
-    for sample in all_rates:
-        index = index.union(set(all_rates[sample].keys()))
-    
-    all_rates_df = pd.DataFrame(index=index)
+                        all_sources[hp]["parent"][coord_key] = parent
+                        all_sources[hp]["parent_hp"][coord_key] = parent_hp
+
+    all_rates_df = pd.DataFrame(index=set(all_segments.keys()))
     for sample in all_rates:
         all_rates_df[sample] = pd.Series(all_rates[sample])
     
     for hp in ["H1", "H2"]:
         all_rates_df[f"{hp}_parent"] = pd.Series(all_sources[hp]["parent"])
         all_rates_df[f"{hp}_parent_hp"] = pd.Series(all_sources[hp]["parent_hp"])
+    all_rates_df["segment"] = pd.Series(all_segments)
     
     with pa.open_multipage_pdf("faux_HG002_cglevel"):
         
@@ -200,7 +255,7 @@ def main():
             plt.title(sample)
             plt.ylabel("HG002")
             plt.xlabel(sample)
-            plot_2d_density(vals_child, vals_other)
+            plot_2d_density(vals_child, vals_other, cmap="jet")
             pa.savefig()
         
         """ More strictly, dropping all NA rows """
@@ -219,43 +274,11 @@ def main():
             plt.title(sample)
             plt.ylabel("HG002")
             plt.xlabel(sample)
-            plot_2d_density(vals_child, vals_other)
+            plot_2d_density(vals_child, vals_other, cmap="jet")
             pa.savefig()
 
 
-all_rates_df_nonaned = all_rates_df_nonaned.copy()
-all_rates_df_nonaned["chrom"] = all_rates_df_nonaned.index.map(lambda x: x.split("_")[0])
-all_rates_df_nonaned["pos"] = all_rates_df_nonaned.index.map(lambda x: int(x.split("_")[1]))
-all_rates_df_nonaned = all_rates_df_nonaned.sort_values(["chrom", "pos"]).groupby("chrom")
-
-from nanoepitools.plotting.plot_methylation_profile import default_color_map
-from nanoepitools.math import p_to_llr
+    with pa.open_multipage_pdf("faux_HG002_plot"):
+        plot_faux_hg002(all_rates_df_nonaned)
 
 
-def color(p):
-    return default_color_map(p_to_llr(p))
-
-
-def plot_met_patches(x, x_end, y, color):
-    patches = [Rectangle((x[i], y[i]), x_end[i] - x[i], 1) for i in range(len(x))]
-    patch_collection = PatchCollection(patches)
-    patch_collection.set_color(color)
-    patch_collection.set_edgecolor(None)
-    plt.gca().add_collection(patch_collection)
-
-
-with pa.open_multipage_pdf("faux_HG002_plot"):
-    pa.figure(figsize=(100, 2))
-    x_off = 0
-    samples = ["HG002_H1", "faux_HG002_H1", "HG002_H2", "faux_HG002_H2", "HG003_H1", "HG003_H2", "HG004_H1", "HG004_H2"]
-    for chrom in tqdm.tqdm(all_rates_df_nonaned.groups):
-        chrom_df = all_rates_df_nonaned.get_group(chrom)
-        x = x_off + np.arange(chrom_df.shape[0])
-        for y, s in enumerate(samples):
-            # plt.scatter(x, [y]*len(x), color=[color(p) for p in chrom_df[s]], s=1, marker="s")
-            plot_met_patches(x, x + 0.5, [y] * len(x), [color(p) for p in chrom_df[s]])
-        x_off = x[-1] + 1
-    plt.yticks(np.arange(len(samples))+0.5, samples)
-    plt.gca().autoscale_view()
-    plt.xlim(0, x_off)
-    pa.savefig()
