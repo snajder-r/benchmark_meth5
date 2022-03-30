@@ -14,7 +14,8 @@ class ModuleConfig:
             "parents_mock_from_np_diffmet": "/omics/groups/OE0540/internal/projects/nanopore/pycometh_benchmark/bs/parents_mockbsseq_diff_methylkit_seg.bed",
         }
         self.methcp_segmentation = {
-            "parents_mock_from_np_hp": "/home/r933r/data/projects/nanopore/pycometh_benchmark/diffmet_parents_methcp/methcp_parents_segments.tsv"
+            "parents_mock_from_np_hp": "/home/r933r/data/projects/nanopore/pycometh_benchmark/diffmet_parents_methcp/methcp_parents_segments.tsv",
+            "parents_mock_from_np_hp_diff": "/home/r933r/data/projects/nanopore/pycometh_benchmark/diffmet_parents_methcp/methcp_parents_segments_sigdiff.tsv",
         }
         
         self.nanoepiseg_segmentation = {
