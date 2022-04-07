@@ -1,3 +1,6 @@
+import sys
+import argparse
+
 import tqdm
 import numpy as np
 import pandas as pd
@@ -31,10 +34,14 @@ def disentangle_combined_calls(ranges, aggs, seq):
 
 
 class MetH5ToBedGraph:
-    def __init__(self, meth5_file):
-        self.ref = pyfaidx.Fasta(module_config.reference, "r")
-        
+    def __init__(self, meth5_file, readgroup=None, readgroup_key=None, fasta=module_config.reference):
+        self.ref = pyfaidx.Fasta(fasta, "r")
         self.f = MetH5File(meth5_file, "r")
+        self.readgroup_key = readgroup_key
+        if self.readgroup_key is not None:
+            group_labels = {v:k for k,v in self.f.get_all_read_groups(self.readgroup_key).items()}
+            self.readgroup = group_labels[readgroup] # translate string label back to rg id
+        
     
     def create_dataframe(self, chrom, ranges, frequencies, sequence):
         new_bs = []
@@ -51,7 +58,12 @@ class MetH5ToBedGraph:
         for chrom in tqdm.tqdm(self.f.get_chromosomes()):
             if chrom not in self.ref:
                 continue
-            agg, r = self.f[chrom].get_all_values().get_llr_site_aggregate(lambda x: agg_fun(x, thres=2.0))
+            
+            if self.readgroup_key is not None:
+                agg = self.f[chrom].get_all_values().get_llr_site_readgroup_aggregate(lambda x: agg_fun(x, thres=2.0), group_key=self.readgroup_key)
+                agg, r = agg[self.readgroup]
+            else:
+                agg, r = self.f[chrom].get_all_values().get_llr_site_aggregate(lambda x: agg_fun(x, thres=2.0))
             new_bs = self.create_dataframe(chrom, r, agg, self.ref[chrom])
             new_bs.to_csv(
                 out_tsv,
@@ -69,33 +81,13 @@ class MetH5ToBedGraph:
         return new_bs
 
 if __name__ == "__main__":
-    sample = "HG004"
-    converter = MetH5ToBedGraph(module_config.meth5_template_file.format(sample=sample))
-    converter.convert_all(module_config.mock_bsseq_template_file.format(sample=sample))
-
+    parser = argparse.ArgumentParser(description='Convert m5 to pseudo-bisulfite.')
+    parser.add_argument('m5file', metavar="m5file", type=str, help='Input M5 file')
+    parser.add_argument('outfile', metavar="outfile", type=str, help='Output tsv file')
+    parser.add_argument('fasta', metavar="fasta", type=str, help='reference genome file')
+    parser.add_argument('--readgroup', metavar="readgroup", required=False, type=str, help='read group in m5 file', default=None)
+    parser.add_argument('--readgroup_key', metavar="readgroup_key", required=False, type=str, help='category of read group', default=None)
+    args = parser.parse_args()
     
-    virgin = {"H1": True, "H2": True}
-    hp_labels = {int(k): v for k, v in f.h5_fp["reads/read_groups/haplotype"].attrs.items()}
-    for chrom in tqdm.tqdm(f.get_chromosomes()):
-        if chrom not in ref:
-            continue
-        agg_dict = f[chrom].get_all_values().get_llr_site_readgroup_aggregate(lambda x: agg_fun(x, thres=2.0), "haplotype")
-        for hp_id in agg_dict:
-            new_bs = []
-            hp = hp_labels.get(hp_id, "none")
-            if hp not in {"H1", "H2"}:
-                continue
-            agg, r = agg_dict[hp_id]
-            for in_pos, in_row in disentangle_combined_calls(r, agg, ref[chrom]):
-                new_bs.append({**in_row, "start": in_pos, "end": in_pos + 2, "chrom": chrom})
-            new_bs = pd.DataFrame(new_bs)
-            new_bs["strand"] = "+"
-            new_bs = new_bs[["chrom", "start", "end", "frac", "cov", "pos", "strand"]]
-            new_bs.to_csv(
-                module_config.mock_bsseq_template_file.format(sample=f"{sample}_{hp}"),
-                mode="a" if not virgin[hp] else "w",
-                header=False,
-                sep="\t",
-                index=False,
-            )
-            virgin[hp] = False
+    converter = MetH5ToBedGraph(args.m5file, readgroup=args.readgroup, readgroup_key=args.readgroup_key, fasta=args.fasta)
+    converter.convert_all(args.outfile)
