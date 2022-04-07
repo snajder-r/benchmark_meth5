@@ -14,7 +14,7 @@ from nanoepitools.math import p_to_llr
 
 
 class OmicsSimlaLoader:
-    def __init__(self, simdir: Path, profile_path: List[Path], profile_map_path: Path):
+    def __init__(self, simdir: Path, profile_path: Path, profile_map_path: Path):
         self.profile_path = profile_path
         self.profile_map_path = profile_map_path
         self.omics_simla_summary_file = simdir.joinpath("Methylation_summary.txt")
@@ -80,8 +80,8 @@ class OmicsSimlaLoader:
                     first_col_to_read = 2 + max(0, first_pos - profile_read_cs) * 2
                     last_col_to_read = 2 + min(num_cs, last_pos - profile_read_cs + 1) * 2
                     self.profile_rates += [float(line[i]) for i in range(first_col_to_read, last_col_to_read, 2)]
-                    self.segments += [segment_id] * (last_col_to_read - first_col_to_read)
-                    self.segment_types += [segment_type] * ((last_col_to_read - first_col_to_read) // 2)
+                    self.segments += [segment_id] * num_cs
+                    self.segment_types += [segment_type] * num_cs
                 
                 segment_id += 1
                 profile_read_cs += num_cs
@@ -164,14 +164,16 @@ class Simulator:
             yield self.simulate_nanopore_read(sample, *self.get_random_read_position_and_length(), **kwargs)
 
     def group_calls(self, pos, llrs, min_dist=10):
-        start = 0
-        end = 0
-        llrs_sum = 0
-        llrs_count = 0
-        for p, llr in zip(pos, llrs):
-            if p - end > min_dist and llrs_count > 0:
-                if llrs_count > 0:
-                    yield start, end, llrs_sum / llrs_count
+        if len(pos)==0:
+            return
+        
+        it = zip(pos, llrs)
+        start, llrs_sum = next(it)
+        end = start
+        llrs_count = 1
+        for p, llr in it:
+            if p - end > min_dist:
+                yield start, end, llrs_sum / llrs_count
                 start = p
                 end = p
                 llrs_sum = llr
@@ -203,6 +205,7 @@ class Simulator:
                     readname_kwargs = dict(process_id=process_id, chunk_id=chunk_id, sample_id=self.sample_hex_ids[sample])
                     for read_name, chrom, pos, llrs in self.simulate_nanopore_reads(sample, chunksize, **readname_kwargs):
                         grouped_calls = self.group_calls(pos, llrs)
+                        
                         to_add = [
                             {
                                 "chromosome": chrom,
