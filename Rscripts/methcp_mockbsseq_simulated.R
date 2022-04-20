@@ -23,3 +23,7 @@ write.table(data.frame(obj_seg_methylKit@segmentation), file="/data/r933r/giab/m
 region_methylKit <- getSigRegion(obj_seg_methylKit, sig.level=0.1, nC.valid=5)
 
 write.table(region_methylKit, file="/data/r933r/giab/mock_bsseq_from_nanopore/simulated/methcp_dmr.bed", sep="\t", row.names=FALSE, col.names=FALSE, quote=FALSE)
+
+region_methylKit <- getSigRegion(obj_seg_methylKit, sig.level=0.5, nC.valid=5)
+
+write.table(region_methylKit, file="/data/r933r/giab/mock_bsseq_from_nanopore/simulated/methcp_highpval_dmr.bed", sep="\t", row.names=FALSE, col.names=FALSE, quote=FALSE)
