@@ -3,8 +3,9 @@ import numpy as np
 from benchmark_pycometh.config import module_config
 
 for sample, files in module_config.bs_seq_files.items():
-    if sample != "HG004":
+    if sample != "HG002":
         continue
+    print(sample)
     df_r1 = pd.read_csv(files["R1"], sep="\t", names=["chrom", "start", "end", "frac", "pos", "neg"], header=None)
     df_r2 = pd.read_csv(files["R2"], sep="\t", names=["chrom", "start", "end", "frac", "pos", "neg"], header=None)
     df_r1 = df_r1.set_index(["chrom", "start", "end"])

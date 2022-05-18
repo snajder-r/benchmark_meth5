@@ -48,6 +48,11 @@ class ModuleConfig:
         }
         
         self.bs_seq_files = {
+            "HG002": {
+                "R1": "/home/r933r/data/projects/nanopore/data/giab/bs_seq_seqc2/GSM5649437_TruSeq_HG002_LAB01_REP01.bedGraph.gz",
+                "R2": "/home/r933r/data/projects/nanopore/data/giab/bs_seq_seqc2/GSM5649436_TruSeq_HG002_LAB01_REP02.bedGraph.gz",
+                "combined": "/home/r933r/data/projects/nanopore/pycometh_benchmark/bs/HG002_rep1_rep2_merged.bedGraph.gz",
+            },
             "HG003": {
                 "R1": "/home/r933r/data/projects/nanopore/data/giab/bs_seq_seqc2/GSM5649434_TruSeq_HG003_LAB01_REP01.bedGraph.gz",
                 "R2": "/home/r933r/data/projects/nanopore/data/giab/bs_seq_seqc2/GSM5649433_TruSeq_HG003_LAB01_REP02.bedGraph.gz",
