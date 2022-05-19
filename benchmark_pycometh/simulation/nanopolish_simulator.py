@@ -146,8 +146,10 @@ class Simulator:
         pos, rates = self.omics_simla.get_region_rates(sample, chrom, start, start + length)
         binary_read = np.random.rand(len(rates)) < rates
         binary_read = (binary_read - 0.5) * 2  # 1 methylated and -1 unmethylated
-        absolute_llrs = p_to_llr(np.random.beta(self.quality_alpha, self.quality_beta, len(rates)))
-        llrs = binary_read * absolute_llrs
+        call_quality = np.random.beta(self.quality_alpha, self.quality_beta, len(rates)) # range 0-1
+        call_quality = call_quality / 2 # range 0-0.5
+        call_p = 0.5 + binary_read * call_quality # range 0-1 where <0.5 us unmet and >0.5 is met
+        llrs = p_to_llr(call_p) # range -inf to +inf
         read_name = self.simulate_read_name(**kwargs)
         return read_name, chrom, pos, llrs
     

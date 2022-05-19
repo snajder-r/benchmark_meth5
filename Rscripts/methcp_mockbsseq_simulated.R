@@ -5,8 +5,8 @@ library(MethCP)
 library(BiocParallel)
 
 
-bsfiles = c("/data/r933r/giab/mock_bsseq_from_nanopore/simulated/diffmet_merged_DCASES1.tsv",
-                 "/data/r933r/giab/mock_bsseq_from_nanopore/simulated/diffmet_merged_DCONTROLS1.tsv")
+bsfiles = c("/data/r933r/giab/mock_bsseq_from_nanopore/simulated/diffmet_merged_2_DCASES1.tsv",
+                 "/data/r933r/giab/mock_bsseq_from_nanopore/simulated/diffmet_merged_2_DCONTROLS1.tsv")
 
 bs_object <- createBsseqObject(
     files = bsfiles, sample_names = list("DCASES1", "DCONTROLS1"),
@@ -18,12 +18,12 @@ bpparams=bpparam()
 bpparams$workers = 4
 obj_seg_methylKit <- segmentMethCP(obj_methylKit, bs_object, region.test = "fisher", BPPARAM=bpparams)
 
-write.table(data.frame(obj_seg_methylKit@segmentation), file="/data/r933r/giab/mock_bsseq_from_nanopore/simulated/methcp_segments.bed", sep="\t", row.names=FALSE, col.names=FALSE, quote=FALSE)
+write.table(data.frame(obj_seg_methylKit@segmentation), file="/data/r933r/giab/mock_bsseq_from_nanopore/simulated/methcp_segments_2.bed", sep="\t", row.names=FALSE, col.names=FALSE, quote=FALSE)
 
 region_methylKit <- getSigRegion(obj_seg_methylKit, sig.level=0.1, nC.valid=5)
 
-write.table(region_methylKit, file="/data/r933r/giab/mock_bsseq_from_nanopore/simulated/methcp_dmr.bed", sep="\t", row.names=FALSE, col.names=FALSE, quote=FALSE)
+write.table(region_methylKit, file="/data/r933r/giab/mock_bsseq_from_nanopore/simulated/methcp_dmr_2.bed", sep="\t", row.names=FALSE, col.names=FALSE, quote=FALSE)
 
 region_methylKit <- getSigRegion(obj_seg_methylKit, sig.level=0.5, nC.valid=5)
 
-write.table(region_methylKit, file="/data/r933r/giab/mock_bsseq_from_nanopore/simulated/methcp_highpval_dmr.bed", sep="\t", row.names=FALSE, col.names=FALSE, quote=FALSE)
+write.table(region_methylKit, file="/data/r933r/giab/mock_bsseq_from_nanopore/simulated/methcp_highpval_dmr_2.bed", sep="\t", row.names=FALSE, col.names=FALSE, quote=FALSE)
