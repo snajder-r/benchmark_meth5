@@ -4,12 +4,19 @@ from meth5 import MetH5File
 
 
 class Results:
-    def __init__(self, reference_cpgs, m5_path, include_chroms=None, read_group_key="haplotype"):
+    def __init__(self, reference_cpgs, m5_path, include_chroms=None, read_group_key="haplotype", samples=None):
         self.reference_cpgs = reference_cpgs
         self.segments = {}
-        self.m5_path = m5_path
+        assert (read_group_key is None or samples is None)
+        
+        if read_group_key is not None:
+            self.m5_paths = {"asm": m5_path}
+        else:
+            self.m5_paths = m5_path
+            
         self.include_chroms = include_chroms
         self.read_group_key = read_group_key
+        self.samples = samples
     
     def annotate_cpgs(self, segments):
         segments["CpGs"] = segments.apply(
@@ -17,8 +24,12 @@ class Results:
         )
         return segments
     
-    def compute_diffmet(self, mf, chrom, start, end, min_calls=2):
-        agg = mf[chrom].get_values_in_range(start, end).get_llr_site_readgroup_rate(self.read_group_key)
+    def compute_diffmet(self, mfs, chrom, start, end, min_calls=2):
+        if self.read_group_key is not None:
+            agg = mfs["asm"][chrom].get_values_in_range(start, end).get_llr_site_readgroup_rate(self.read_group_key)
+        else:
+            agg = [mfs[s][chrom].get_values_in_range(start, end).get_llr_site_rate() for s in self.samples]
+        
         if len(agg) < 2:
             return np.nan
         if len(agg[0][1]) < min_calls or len(agg[1][1]) < min_calls:
@@ -56,10 +67,10 @@ class Results:
         print(f"Annotating CpGs for {key}")
         data = self.annotate_cpgs(data)
         print(f"Loading diffmet for {key} ({data.shape[0]} segments)")
-        with MetH5File(self.m5_path, "r") as mf:
-            data["diffmet"] = data.apply(
-                lambda row: self.compute_diffmet(mf, row["chrom"], row["start"], row["end"]), axis=1
-            )
-            data = data.loc[data["diffmet"].map(lambda x: not np.isnan(x))]
+        mfs = {s: MetH5File(self.m5_paths[s], "r") for s in self.samples}
+        data["diffmet"] = data.apply(
+            lambda row: self.compute_diffmet(mfs, row["chrom"], row["start"], row["end"]), axis=1
+        )
+        data = data.loc[data["diffmet"].map(lambda x: not np.isnan(x))]
         print(f"Finished loading {key} ({data.shape[0]} segments)")
         self.segments[key] = data
