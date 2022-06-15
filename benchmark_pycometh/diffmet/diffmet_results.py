@@ -67,7 +67,7 @@ class Results:
         print(f"Annotating CpGs for {key}")
         data = self.annotate_cpgs(data)
         print(f"Loading diffmet for {key} ({data.shape[0]} segments)")
-        mfs = {s: MetH5File(self.m5_paths[s], "r") for s in self.samples}
+        mfs = {s: MetH5File(self.m5_paths[s], "r") for s in self.m5_paths}
         data["diffmet"] = data.apply(
             lambda row: self.compute_diffmet(mfs, row["chrom"], row["start"], row["end"]), axis=1
         )
