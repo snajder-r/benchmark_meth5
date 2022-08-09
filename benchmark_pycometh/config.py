@@ -20,6 +20,9 @@ class ModuleConfig:
         self.meth5_template_file = (
             "/home/r933r/data/projects/nanopore/pycometh_benchmark/met_merged/{sample}_cpg.h5"
         )
+        self.meth5_template_file_RANDOMIZED = (
+            "/home/r933r/data/projects/nanopore/pycometh_benchmark/met_merged/{sample}_cpg_RANDOMIZED.h5"
+        )
         self.meth5_gzipped_template_file = (
             "/home/r933r/data/projects/nanopore/pycometh_benchmark/met_merged/{" "sample}_cpg.h5"
         )
