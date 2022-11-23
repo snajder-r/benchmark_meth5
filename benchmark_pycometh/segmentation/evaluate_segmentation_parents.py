@@ -38,6 +38,16 @@ seg_methcp = pd.read_csv(
     skiprows=1,
 )
 
+seg_methcp_diff = pd.read_csv(
+    module_config.methcp_segmentation["parents_mock_from_np_hp_diff"],
+    sep="\t",
+    usecols=[1, 2, 3],
+    names=["chrom", "start", "end"],
+    dtype={"chrom": "str"},
+    skiprows=1,
+)
+
+
 
 mfs = {sample: MetH5File(module_config.meth5_template_file.format(sample=sample), "r") for sample in ["HG003", "HG004"]}
 hp_dict = {
@@ -48,6 +58,7 @@ hp_ids = {sample: [k for k, v in hp_dict[sample].items() if v in {"H1", "H2"}] f
 seg_methylkit = seg_methylkit.groupby("chrom")
 seg_nanoepiseg = seg_nanoepiseg.groupby("chrom")
 seg_methcp = seg_methcp.groupby("chrom")
+seg_methcp_diff = seg_methcp_diff.groupby("chrom")
 
 chrom = "21"
 
@@ -90,34 +101,34 @@ def permute_segments(original_segments):
             return
 
 
-segmentations = {"PycoMeth": seg_nanoepiseg, "MethylKit": seg_methylkit, "MethCP": seg_methcp}
+segmentations = {"PycoMeth": seg_nanoepiseg, "MethylKit": seg_methylkit, "MethCP": seg_methcp, "MethCP (sig diff)": seg_methcp_diff}
 callers = list(segmentations.keys())
 variances = {sample:{} for sample in mfs}
 seglengths = {sample:{} for sample in mfs}
 
 for caller_name, segs in segmentations.items():
     chrsegs = segs.get_group(chrom)
-    for sample in callers:
+    for sample in mfs:
         seglengths[sample][caller_name], variances[sample][caller_name] = compute_variance(mfs[sample], chrsegs.itertuples())
-        caller_name = f"{caller_name} randomized"
         randomsegs = list(permute_segments(chrsegs))
-        seglengths[sample][caller_name], variances[sample][caller_name] = compute_variance(mfs[sample], randomsegs)
+        seglengths[sample][f"{caller_name} randomized"], variances[sample][caller_name] = compute_variance(mfs[sample], randomsegs)
 
 
 with pa.open_multipage_pdf("variance_segmentation_parents"):
-    for sample in variances:
+    for sample in mfs:
         pa.figure()
         plt.title(f"Variance of segmentation {sample} chr21")
         x = callers
         y = [variances[sample][c] for c in x]
-        parts = plt.violinplot(y, positions=[0, 1, 2])
+        xpos = np.arange(len(y))
+        parts = plt.violinplot(y, positions=xpos)
         for pc in parts["bodies"]:
             pc.set_facecolor("blue")
             pc.set_alpha(0.5)
         
         x_r = [f"{c} randomized" for c in callers]
         y = [variances[sample][c] for c in x_r]
-        parts = plt.violinplot(y, positions=[0, 1, 2])
+        parts = plt.violinplot(y, positions=xpos)
         for pc in parts["bodies"]:
             pc.set_facecolor("red")
             pc.set_alpha(0.5)
@@ -127,7 +138,7 @@ with pa.open_multipage_pdf("variance_segmentation_parents"):
             Patch(facecolor="blue", edgecolor="blue", label="Segmentation"),
         ]
         plt.legend(handles=legend_elements)
-        plt.xticks([0, 1, 2], x)
+        plt.xticks(xpos, x)
         pa.savefig()
 
         x_max = 0

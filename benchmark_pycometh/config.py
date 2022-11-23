@@ -14,17 +14,14 @@ class ModuleConfig:
             "parents_mock_from_np_diffmet": "/omics/groups/OE0540/internal/projects/nanopore/pycometh_benchmark/bs/parents_mockbsseq_diff_methylkit_seg.bed",
         }
         self.methcp_segmentation = {
-            "parents_mock_from_np_hp": "/home/r933r/data/projects/nanopore/pycometh_benchmark/diffmet_parents_methcp/methcp_parents_segments.tsv"
-        }
-        
-        self.nanoepiseg_segmentation = {
-            "HG003": "/home/r933r/data/projects/nanopore/pycometh_benchmark/segmentation/HG003.bed",
-            "HG003_35": "/home/r933r/data/projects/nanopore/pycometh_benchmark/segmentation/HG003_35.bed",
-            "parents": "/home/r933r/data/projects/nanopore/pycometh_benchmark/segmentation_parents/segmentation_parents.bed",
-            "parents_35": "/home/r933r/data/projects/nanopore/pycometh_benchmark/segmentation_parents/segmentation_parents_mindiff_35.bed",
+            "parents_mock_from_np_hp": "/home/r933r/data/projects/nanopore/pycometh_benchmark/diffmet_parents_methcp/methcp_parents_segments.tsv",
+            "parents_mock_from_np_hp_diff": "/home/r933r/data/projects/nanopore/pycometh_benchmark/diffmet_parents_methcp/methcp_parents_segments_sigdiff.tsv",
         }
         self.meth5_template_file = (
-            "/home/r933r/data/projects/nanopore/pycometh_benchmark/met_merged/{sample}_cpg_lzfcompressed.h5"
+            "/home/r933r/data/projects/nanopore/pycometh_benchmark/met_merged/{sample}_cpg.h5"
+        )
+        self.meth5_template_file_RANDOMIZED = (
+            "/home/r933r/data/projects/nanopore/pycometh_benchmark/met_merged/{sample}_cpg_RANDOMIZED.h5"
         )
         self.meth5_gzipped_template_file = (
             "/home/r933r/data/projects/nanopore/pycometh_benchmark/met_merged/{" "sample}_cpg.h5"
@@ -47,6 +44,11 @@ class ModuleConfig:
         }
         
         self.bs_seq_files = {
+            "HG002": {
+                "R1": "/home/r933r/data/projects/nanopore/data/giab/bs_seq_seqc2/GSM5649437_TruSeq_HG002_LAB01_REP01.bedGraph.gz",
+                "R2": "/home/r933r/data/projects/nanopore/data/giab/bs_seq_seqc2/GSM5649436_TruSeq_HG002_LAB01_REP02.bedGraph.gz",
+                "combined": "/home/r933r/data/projects/nanopore/pycometh_benchmark/bs/HG002_rep1_rep2_merged.bedGraph.gz",
+            },
             "HG003": {
                 "R1": "/home/r933r/data/projects/nanopore/data/giab/bs_seq_seqc2/GSM5649434_TruSeq_HG003_LAB01_REP01.bedGraph.gz",
                 "R2": "/home/r933r/data/projects/nanopore/data/giab/bs_seq_seqc2/GSM5649433_TruSeq_HG003_LAB01_REP02.bedGraph.gz",
